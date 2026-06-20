@@ -1,0 +1,87 @@
+{
+  "project_name": "Practora",
+  "theme": "light",
+  "archetype": "Organic & Earthy",
+  "colors": {
+    "background": "#FDFBF7",
+    "foreground": "#2C1E16",
+    "primary": {
+      "DEFAULT": "#C86B53",
+      "foreground": "#FFFFFF",
+      "hover": "#B35A44"
+    },
+    "secondary": {
+      "DEFAULT": "#F5F0E6",
+      "foreground": "#2C1E16"
+    },
+    "muted": {
+      "DEFAULT": "#F0EBE1",
+      "foreground": "#7A685D"
+    },
+    "border": "#E8DED1",
+    "card": {
+      "DEFAULT": "#FFFFFF",
+      "foreground": "#2C1E16"
+    },
+    "accent": {
+      "DEFAULT": "#E3A387",
+      "foreground": "#2C1E16"
+    }
+  },
+  "typography": {
+    "font_families": {
+      "heading": "Cormorant Garamond, serif",
+      "body": "Manrope, sans-serif"
+    },
+    "scale_rules": {
+      "h1": "text-5xl lg:text-6xl tracking-tighter leading-none font-light",
+      "h2": "text-3xl lg:text-4xl tracking-tight font-medium",
+      "h3": "text-2xl font-medium",
+      "body": "text-base leading-relaxed",
+      "small": "text-sm tracking-[0.05em] uppercase text-muted-foreground"
+    }
+  },
+  "spacing_and_layout": {
+    "marketing_page": "Mode A: 'Tetris' Grid. Asymmetrical layouts. col-span-full md:col-span-8 row-span-2 for hero elements. Generous vertical spacing (py-24 or py-32).",
+    "dashboard": "Mode B: 'Control Room' Grid. Dense. grid-cols-1 md:grid-cols-3 lg:grid-cols-4. gap-4 or gap-6. Functional beauty with 1px border-border.",
+    "booking_page": "Split storytelling layout. Left column: Sticky professional bio, photo, trust signals. Right column: Service selection, Calendar, Time slots.",
+    "general_rules": "Containers with borders MUST have internal padding (p-6 or p-8). Images MUST NOT exceed 80vh on mobile."
+  },
+  "components": {
+    "buttons": "Rounded-full for marketing, rounded-lg for dashboard/apps. Primary color Terracotta. Hover: slight lift (-translate-y-0.5) and increased shadow.",
+    "cards": "Flat background, 1px subtle border (#E8DED1). NO muddy gray shadows. Avoid default Shadcn card look; customize to be flat and elegant.",
+    "forms": "Use Shadcn components (Form, Input, Select). Customize to have warm borders. Focus ring must be primary (#C86B53). NO native HTML inputs.",
+    "navigation": "Crystal Glass header: backdrop-blur-xl bg-[#FDFBF7]/80. 1px delicate inner stroke. Never fully transparent over content.",
+    "charts_stats": "Go cardless where possible. Highlight typography and data over boxes."
+  },
+  "media_and_images": {
+    "guidelines": "Use close-ups. Max overlay opacity bg-black/40 (if dark text is needed, use white/40 overlay). No full flat blanket overlays that kill image contrast.",
+    "urls": {
+      "marketing_hero": "https://images.pexels.com/photos/14797769/pexels-photo-14797769.jpeg",
+      "marketing_texture_bg": "https://images.pexels.com/photos/7232845/pexels-photo-7232845.jpeg",
+      "professional_dummy_1": "https://images.pexels.com/photos/4100671/pexels-photo-4100671.jpeg",
+      "professional_dummy_2": "https://images.pexels.com/photos/8152402/pexels-photo-8152402.jpeg",
+      "professional_dummy_3": "https://images.pexels.com/photos/26268159/pexels-photo-26268159.jpeg",
+      "service_dummy_texture": "https://images.pexels.com/photos/1217315/pexels-photo-1217315.jpeg"
+    }
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "style": "Duotone or regular weight to match the premium, bespoke feel of the platform."
+  },
+  "interactions_and_motion": {
+    "rules": "Smooth state changes. Entrance animations staggered for lists (e.g., booking slots). Use framer-motion for marketing transitions. MUST respect prefers-reduced-motion."
+  },
+  "testing": {
+    "attributes": "All interactive and key informational elements MUST include data-testid attribute in kebab-case (e.g., data-testid='signup-submit-button')."
+  },
+  "instructions_to_main_agent": [
+    "Install @phosphor-icons/react, framer-motion, and required Shadcn dependencies.",
+    "Configure Tailwind CSS to use the Warm Beige, Terracotta, and Dark Brown palette exactly as specified.",
+    "Ensure 'Cormorant Garamond' and 'Manrope' fonts are imported and applied correctly in index.css or layout.",
+    "Build the Marketing page using custom HTML/Tailwind for artistic asymmetry (Tetris Grid).",
+    "Build the Dashboard and Auth pages using highly customized Shadcn components (Control Room Grid).",
+    "The Booking Page (/:slug) must feel like a premium, trustworthy checkout experience with a split layout.",
+    "Ensure all data-testid attributes are implemented across all interactable elements for testing."
+  ]
+}
