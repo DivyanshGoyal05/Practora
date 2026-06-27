@@ -5,8 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { Plus, Pencil, Trash2, Clock, IndianRupee } from "lucide-react";
+import { Plus, Pencil, Trash2, Clock, IndianRupee, FileText } from "lucide-react";
 import { toast } from "sonner";
+import IntakeFormBuilder from "@/components/IntakeFormBuilder";
 
 const emptyForm = { name: "", description: "", duration_min: 60, price: 1000, cover_image: "" };
 
@@ -16,6 +17,9 @@ export default function Services() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
 
+  const [intakeOpen, setIntakeOpen] = useState(false);
+  const [intakeService, setIntakeService] = useState(null);
+
   const load = async () => {
     const { data } = await api.get("/me/services");
     setServices(data);
@@ -24,6 +28,7 @@ export default function Services() {
 
   const openCreate = () => { setEditing(null); setForm(emptyForm); setOpen(true); };
   const openEdit = (s) => { setEditing(s); setForm({ name: s.name, description: s.description, duration_min: s.duration_min, price: s.price, cover_image: s.cover_image || "" }); setOpen(true); };
+  const openIntake = (s) => { setIntakeService(s); setIntakeOpen(true); };
 
   const save = async (e) => {
     e.preventDefault();
@@ -109,26 +114,45 @@ export default function Services() {
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {services.map((s) => (
-            <div key={s.id} className="paper-card p-5 flex flex-col" data-testid={`service-card-${s.id}`}>
-              <h3 className="font-heading text-2xl leading-tight">{s.name}</h3>
-              {s.description && <p className="text-sm text-cocoaSoft mt-2 line-clamp-3 flex-1">{s.description}</p>}
-              <div className="flex items-center gap-4 mt-4 text-sm text-cocoaSoft">
-                <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {s.duration_min} min</span>
-                <span className="flex items-center gap-1"><IndianRupee className="h-3.5 w-3.5" /> {s.price}</span>
+          {services.map((s) => {
+            const qCount = (s.intake_questions || []).length;
+            return (
+              <div key={s.id} className="paper-card p-5 flex flex-col" data-testid={`service-card-${s.id}`}>
+                <h3 className="font-heading text-2xl leading-tight">{s.name}</h3>
+                {s.description && <p className="text-sm text-cocoaSoft mt-2 line-clamp-3 flex-1">{s.description}</p>}
+                <div className="flex items-center gap-4 mt-4 text-sm text-cocoaSoft">
+                  <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {s.duration_min} min</span>
+                  <span className="flex items-center gap-1"><IndianRupee className="h-3.5 w-3.5" /> {s.price}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => openIntake(s)}
+                  className="mt-3 text-xs flex items-center gap-1.5 text-cocoaSoft hover:text-primary self-start"
+                  data-testid={`edit-intake-${s.id}`}
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  {qCount === 0 ? "Add intake form" : `Intake form · ${qCount} question${qCount === 1 ? "" : "s"}`}
+                </button>
+                <div className="flex gap-2 mt-5 pt-4 border-t border-border">
+                  <Button variant="outline" size="sm" onClick={() => openEdit(s)} className="flex-1" data-testid={`edit-service-${s.id}`}>
+                    <Pencil className="h-3.5 w-3.5 mr-1.5" /> Edit
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => remove(s)} className="text-destructive hover:text-destructive" data-testid={`delete-service-${s.id}`}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               </div>
-              <div className="flex gap-2 mt-5 pt-4 border-t border-border">
-                <Button variant="outline" size="sm" onClick={() => openEdit(s)} className="flex-1" data-testid={`edit-service-${s.id}`}>
-                  <Pencil className="h-3.5 w-3.5 mr-1.5" /> Edit
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => remove(s)} className="text-destructive hover:text-destructive" data-testid={`delete-service-${s.id}`}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
+
+      <IntakeFormBuilder
+        open={intakeOpen}
+        onOpenChange={setIntakeOpen}
+        service={intakeService}
+        onSaved={load}
+      />
     </div>
   );
 }

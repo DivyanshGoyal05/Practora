@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
-import { Clock, IndianRupee, MapPin, Globe, Instagram, MessageCircle, ArrowLeft, Check } from "lucide-react";
+import { Clock, IndianRupee, MapPin, Globe, Instagram, MessageCircle, ArrowLeft, Check, FileText } from "lucide-react";
 import { toast } from "sonner";
+import IntakeFormRenderer, { validateIntakeAnswers } from "@/components/IntakeFormRenderer";
 
 function NotFound() {
   return (
@@ -26,12 +27,13 @@ export default function PublicBooking() {
   const nav = useNavigate();
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
-  const [step, setStep] = useState("service"); // service | datetime | details | done
+  const [step, setStep] = useState("service"); // service | datetime | intake | details | done
   const [selectedService, setSelectedService] = useState(null);
   const [date, setDate] = useState(null);
   const [slots, setSlots] = useState([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
   const [time, setTime] = useState(null);
+  const [intakeAnswers, setIntakeAnswers] = useState({});
   const [form, setForm] = useState({ customer_name: "", customer_email: "", customer_phone: "", notes: "" });
   const [submitting, setSubmitting] = useState(false);
 
@@ -55,14 +57,22 @@ export default function PublicBooking() {
   if (!data) return <div className="min-h-screen grid place-items-center"><div className="h-8 w-8 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>;
 
   const { professional: p, services } = data;
+  const intakeQuestions = selectedService?.intake_questions || [];
+  const hasIntake = intakeQuestions.length > 0;
 
   const goBack = () => {
     if (step === "datetime") setStep("service");
-    else if (step === "details") setStep("datetime");
+    else if (step === "intake") setStep("datetime");
+    else if (step === "details") setStep(hasIntake ? "intake" : "datetime");
   };
 
   const submit = async (e) => {
     e.preventDefault();
+    // Final validation of intake (in case user manipulated step)
+    if (hasIntake) {
+      const errs = validateIntakeAnswers(intakeQuestions, intakeAnswers);
+      if (errs.length) { toast.error(`${errs[0].field}: ${errs[0].message}`); return; }
+    }
     setSubmitting(true);
     try {
       const payload = {
@@ -70,6 +80,9 @@ export default function PublicBooking() {
         date: date.toISOString().slice(0, 10),
         start_time: time,
         ...form,
+        intake_answers: Object.entries(intakeAnswers)
+          .filter(([_, v]) => (v ?? "").toString().trim() !== "")
+          .map(([question_id, answer]) => ({ question_id, answer: String(answer) })),
       };
       const { data: booking } = await api.post(`/p/${slug}/book`, payload);
       nav(`/booking/${booking.id}`);
@@ -78,6 +91,17 @@ export default function PublicBooking() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleSlotPick = (s) => {
+    setTime(s);
+    setStep(hasIntake ? "intake" : "details");
+  };
+
+  const continueFromIntake = () => {
+    const errs = validateIntakeAnswers(intakeQuestions, intakeAnswers);
+    if (errs.length) { toast.error(`${errs[0].field}: ${errs[0].message}`); return; }
+    setStep("details");
   };
 
   return (
@@ -133,11 +157,15 @@ export default function PublicBooking() {
               </button>
             )}
             <div className="flex items-center gap-2">
-              <Step active={step === "service"} done={["datetime","details"].includes(step)} n="1" label="Service" />
+              <Step active={step === "service"} done={["datetime","intake","details"].includes(step)} n="1" label="Service" />
               <div className="w-6 h-px bg-border" />
-              <Step active={step === "datetime"} done={step === "details"} n="2" label="Date & time" />
+              <Step active={step === "datetime"} done={["intake","details"].includes(step)} n="2" label="Date & time" />
+              {hasIntake && <>
+                <div className="w-6 h-px bg-border" />
+                <Step active={step === "intake"} done={step === "details"} n="3" label="Intake" />
+              </>}
               <div className="w-6 h-px bg-border" />
-              <Step active={step === "details"} n="3" label="Your details" />
+              <Step active={step === "details"} n={hasIntake ? "4" : "3"} label="Your details" />
             </div>
           </div>
 
@@ -202,7 +230,7 @@ export default function PublicBooking() {
                     {slots.map((s) => (
                       <button
                         key={s}
-                        onClick={() => { setTime(s); setStep("details"); }}
+                        onClick={() => handleSlotPick(s)}
                         className={`px-3 py-2.5 rounded-lg border text-sm transition-all hover:border-primary hover:-translate-y-0.5 ${time === s ? "border-primary bg-primary/5" : "border-border bg-white"}`}
                         data-testid={`slot-${s}`}
                       >
@@ -212,6 +240,33 @@ export default function PublicBooking() {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Step 2.5 — intake (only if service has questions) */}
+          {step === "intake" && selectedService && hasIntake && (
+            <div className="animate-fade-up space-y-6" data-testid="intake-step">
+              <div className="paper-card p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.15em] text-cocoaSoft">Selected</p>
+                  <p className="font-medium">{selectedService.name} · {date?.toDateString()} at {time}</p>
+                </div>
+              </div>
+              <div>
+                <h2 className="font-heading text-3xl flex items-center gap-2"><FileText className="h-6 w-6 text-primary" /> A few quick questions</h2>
+                <p className="text-cocoaSoft text-sm mt-1">{p.name} would like to know a bit before your session.</p>
+              </div>
+              <div className="paper-card p-5">
+                <IntakeFormRenderer
+                  questions={intakeQuestions}
+                  answers={intakeAnswers}
+                  onChange={(qid, v) => setIntakeAnswers((p) => ({ ...p, [qid]: v }))}
+                  testidPrefix="intake"
+                />
+              </div>
+              <Button size="lg" onClick={continueFromIntake} className="rounded-full btn-lift" data-testid="intake-continue-button">
+                Continue
+              </Button>
             </div>
           )}
 

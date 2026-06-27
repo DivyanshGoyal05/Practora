@@ -215,6 +215,7 @@ class BookingIn(BaseModel):
     customer_email: EmailStr
     customer_phone: str = ""
     notes: str = ""
+    intake_answers: List[Dict[str, str]] = []  # [{question_id, answer}]
 
 class RescheduleIn(BaseModel):
     date: str
@@ -226,6 +227,36 @@ class CancelIn(BaseModel):
 
 class NoShowIn(BaseModel):
     reason: str = ""
+
+# --- Intake form ----------------------------------------------------
+ALLOWED_QUESTION_TYPES = {
+    "short_text", "long_text", "dropdown", "email", "phone", "url",
+    # Reserved for future: "file", "checkbox", "multi_choice", "date", "signature", "rating"
+}
+
+class IntakeQuestion(BaseModel):
+    id: Optional[str] = None  # generated if missing
+    text: str = Field(min_length=1, max_length=500)
+    type: str = "short_text"
+    required: bool = False
+    options: List[str] = []  # only used for dropdown / multi_choice
+
+class IntakeFormIn(BaseModel):
+    questions: List[IntakeQuestion] = []
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+URL_RE = re.compile(r"^https?://", re.IGNORECASE)
+
+
+def validate_intake_answer(q_type: str, answer: str) -> Optional[str]:
+    """Returns error string if invalid, else None."""
+    if q_type == "email" and not EMAIL_RE.match(answer):
+        return "Invalid email address"
+    if q_type == "url" and not URL_RE.match(answer):
+        return "Must be a URL starting with http:// or https://"
+    if q_type == "phone" and len(re.sub(r"\D", "", answer)) < 6:
+        return "Invalid phone number"
+    return None
 
 # --- Auth ------------------------------------------------------------
 @api.post("/auth/register")
@@ -334,6 +365,50 @@ async def update_service(service_id: str, body: ServiceIn, user=Depends(get_curr
 async def delete_service(service_id: str, user=Depends(get_current_user)):
     await db.services.delete_one({"id": service_id, "pro_id": user["id"]})
     return {"ok": True}
+
+# --- Intake form (per service) --------------------------------------
+@api.get("/me/services/{service_id}/intake-form")
+async def get_intake_form(service_id: str, user=Depends(get_current_user)):
+    svc = await db.services.find_one({"id": service_id, "pro_id": user["id"]}, {"_id": 0})
+    if not svc:
+        raise HTTPException(404, "Service not found")
+    return {"questions": svc.get("intake_questions", [])}
+
+@api.put("/me/services/{service_id}/intake-form")
+async def update_intake_form(service_id: str, body: IntakeFormIn, user=Depends(get_current_user)):
+    if len(body.questions) > 20:
+        raise HTTPException(400, "Maximum 20 questions per service")
+    cleaned = []
+    for q in body.questions:
+        if q.type not in ALLOWED_QUESTION_TYPES:
+            raise HTTPException(400, f"Unsupported question type: {q.type}")
+        if q.type == "dropdown" and not q.options:
+            raise HTTPException(400, f"Dropdown '{q.text}' must have at least one option")
+        cleaned.append({
+            "id": q.id or str(uuid.uuid4()),
+            "text": q.text.strip(),
+            "type": q.type,
+            "required": q.required,
+            "options": [o.strip() for o in q.options if o.strip()] if q.type == "dropdown" else [],
+        })
+    res = await db.services.update_one(
+        {"id": service_id, "pro_id": user["id"]},
+        {"$set": {"intake_questions": cleaned}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Service not found")
+    return {"questions": cleaned}
+
+# Public read of intake form (used during booking flow)
+@api.get("/p/{slug}/services/{service_id}/intake-form")
+async def public_intake_form(slug: str, service_id: str):
+    pro = await db.users.find_one({"slug": slug.lower()})
+    if not pro:
+        raise HTTPException(404, "Profile not found")
+    svc = await db.services.find_one({"id": service_id, "pro_id": pro["id"]}, {"_id": 0})
+    if not svc:
+        raise HTTPException(404, "Service not found")
+    return {"questions": svc.get("intake_questions", [])}
 
 # --- Schedule --------------------------------------------------------
 @api.get("/me/schedule")
@@ -469,6 +544,25 @@ async def public_book(slug: str, body: BookingIn):
     if conflict:
         raise HTTPException(409, "This slot is no longer available")
 
+    # --- Intake form validation + snapshot ---
+    questions = service.get("intake_questions", []) or []
+    answer_map = {a.get("question_id"): (a.get("answer") or "").strip() for a in body.intake_answers}
+    snapshot = []
+    for q in questions:
+        ans = answer_map.get(q["id"], "")
+        if q.get("required") and not ans:
+            raise HTTPException(400, f"'{q['text']}' is required")
+        if ans:
+            err = validate_intake_answer(q["type"], ans)
+            if err:
+                raise HTTPException(400, f"{q['text']}: {err}")
+        snapshot.append({
+            "question_id": q["id"],
+            "question_text": q["text"],
+            "question_type": q["type"],
+            "answer": ans,
+        })
+
     end_time = compute_end_time(body.start_time, service["duration_min"])
     booking = {
         "id": str(uuid.uuid4()),
@@ -493,6 +587,7 @@ async def public_book(slug: str, body: BookingIn):
         "cancel_reason": "",
         "reschedule_reason": "",
         "completed_at": None,
+        "intake_answers": snapshot,
         # payment placeholder (decoupled from lifecycle)
         "payment_status": "unpaid",
         "payment_id": None,
@@ -501,11 +596,28 @@ async def public_book(slug: str, body: BookingIn):
     await db.bookings.insert_one(booking)
     booking.pop("_id", None)
 
+    # Analytics-ready: one row per answer for future search/filter
+    for a in snapshot:
+        if not a["answer"]:
+            continue
+        await db.booking_intake_answers.insert_one({
+            "id": str(uuid.uuid4()),
+            "booking_id": booking["id"],
+            "pro_id": user["id"],
+            "service_id": service["id"],
+            "question_id": a["question_id"],
+            "question_text": a["question_text"],
+            "question_type": a["question_type"],
+            "answer": a["answer"],
+            "answer_lower": a["answer"].lower(),
+            "created_at": now_iso(),
+        })
+
     await log_activity(booking["id"], Action.BOOKING_CREATED, "customer", None,
-                       {"service_id": service["id"], "date": body.date, "start_time": body.start_time})
+                       {"service_id": service["id"], "date": body.date, "start_time": body.start_time,
+                        "intake_count": len([a for a in snapshot if a["answer"]])})
     await log_activity(booking["id"], Action.BOOKING_CONFIRMED, "system", None, {})
 
-    # send confirmations (fire and forget — but we await briefly for log clarity)
     try:
         manage_url = booking_manage_url(booking)
         cust_tpl = render_booking_confirmed_customer(booking, user["name"], manage_url)
@@ -805,7 +917,7 @@ async def seed_demo():
             await db.services.insert_one({"id": str(uuid.uuid4()), "pro_id": uid, "created_at": now_iso(), **s})
 
 async def migrate():
-    """Idempotent migrations: uppercase statuses, backfill tokens & reminder flags & policies."""
+    """Idempotent migrations: uppercase statuses, backfill tokens & reminder flags & policies & intake."""
     async for b in db.bookings.find({}):
         updates = {}
         s = (b.get("status") or "").upper()
@@ -819,8 +931,16 @@ async def migrate():
             updates["reminder_1h_sent"] = False
         if "reschedule_count" not in b:
             updates["reschedule_count"] = 0
+        if "intake_answers" not in b:
+            updates["intake_answers"] = []
         if updates:
             await db.bookings.update_one({"id": b["id"]}, {"$set": updates})
+
+    # services without intake_questions
+    await db.services.update_many(
+        {"intake_questions": {"$exists": False}},
+        {"$set": {"intake_questions": []}},
+    )
 
     # Default policies for users missing them
     await db.users.update_many({"policies": {"$exists": False}}, {"$set": {"policies": default_policies()}})
@@ -836,6 +956,8 @@ async def startup():
     await db.bookings.create_index([("pro_id", 1), ("date", 1)])
     await db.bookings.create_index("customer_access_token")
     await db.booking_activities.create_index([("booking_id", 1), ("created_at", -1)])
+    await db.booking_intake_answers.create_index([("pro_id", 1), ("question_id", 1), ("answer_lower", 1)])
+    await db.booking_intake_answers.create_index([("booking_id", 1)])
     await seed_admin()
     await seed_demo()
     await migrate()

@@ -1,0 +1,74 @@
+{
+  "summary": "Phase 3 Slice C (Intake Forms) end-to-end testing completed. 37/37 backend pytest tests pass (17 new intake + 20 Phase-2 lifecycle still green). Frontend IntakeFormBuilder dialog opens, validates empty text and dropdown-without-options with toast errors, and the public booking flow correctly inserts a 4-step indicator (Service / Date & time / Intake / Your details) when the chosen service has intake questions, falling back to 3 steps when it has none. Missing required intake fields show a toast that names the field. Snapshot immutability + booking_intake_answers analytics collection writes (with lowercased answer_lower) verified via direct pymongo query.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "IntakeFormBuilder dialog", "issues": ["Console warning: Missing Description or aria-describedby for shadcn DialogContent — purely a11y warning, not a bug."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_intake_forms.py",
+    "/app/backend/tests/test_practora_lifecycle.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/pytest/intake_results.xml"
+  ],
+  "tests_executed": {
+    "backend_total": 37,
+    "backend_passed": 37,
+    "new_intake_tests": [
+      "PUT intake-form assigns server UUIDs",
+      "GET intake-form persists shape",
+      "Public GET /api/p/{slug}/services/{id}/intake-form (no auth)",
+      "PUT dropdown without options -> 400",
+      "PUT >20 questions -> 400",
+      "PUT unsupported type 'random_type' -> 400",
+      "Book without required intake -> 400 (message includes question text)",
+      "Book with invalid email-type intake answer -> 400 'Invalid email'",
+      "Book with invalid url (no http) -> 400",
+      "Book success: booking.intake_answers contains snapshot of all questions",
+      "db.booking_intake_answers has one row per non-empty answer; answer_lower lowercased",
+      "GET /api/me/bookings/{id} returns booking.intake_answers",
+      "BOOKING_CREATED activity log metadata.intake_count is correct",
+      "Snapshot immutability: editing/removing question doesn't mutate prior booking",
+      "PUT {questions:[]} clears form and subsequent booking succeeds w/o intake",
+      "[EMAIL:CONSOLE] 'New booking' subject present in backend.err.log"
+    ],
+    "frontend_flows_verified": [
+      "Login as anjali@practora.in",
+      "/dashboard/services shows 'Add intake form' badge + edit-intake-{id} buttons for each service",
+      "IntakeFormBuilder dialog opens on click",
+      "Add question button adds rows; up/down/delete controls render",
+      "Save with empty question text -> toast 'Every question needs text'",
+      "Save with Dropdown but no options -> toast 'Dropdown ... needs at least one option'",
+      "Public /dr-anjali: pre-service stepper shows 3 dots (Service / Date & time / Your details). After picking Initial Consultation (which now has 3 intake questions) the stepper switches to 4 dots and includes 'Intake'.",
+      "Intake step renders short_text, dropdown ('Choose...'), and email questions with required (*) markers",
+      "Clicking Continue without filling required fields -> toast 'What brings you here today?: Required'"
+    ]
+  },
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now 974 lines (was 852). Still recommend splitting into routers (auth, services, intake, bookings_pro, bookings_public, schedule) for maintainability — guideline cap is ~700 lines.",
+    "Pydantic BookingIn.intake_answers uses List[Dict[str, str]]; tighter model (e.g. List[IntakeAnswerIn] with question_id and answer fields) would give better validation errors.",
+    "validate_intake_answer() does not validate dropdown values are within the configured options. A user could send any string for a dropdown answer and it would be accepted. Suggest adding: if q.type=='dropdown' and ans not in q['options']: raise.",
+    "booking_intake_answers writes are sequential awaits inside a for-loop; for forms with many answers, use insert_many for a single round-trip.",
+    "EMAIL_RE is fairly permissive but accepts addresses without dots in domain in some shapes; given BookingIn.customer_email already uses EmailStr, consider reusing pydantic validation rather than a local regex inside the intake validator.",
+    "The IntakeFormBuilder shadcn DialogContent lacks aria-describedby (console warning) — small a11y miss."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_intake_forms.py (new — 17 tests with module-scope teardown that clears intake forms so other test files aren't broken)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "anjali@practora.in / demo123 (slug dr-anjali); raj@practora.in / demo123; admin@practora.in / admin123",
+  "seed_data_creation": "Tests POST TEST_-prefixed bookings with intake answers on the seeded Initial Consultation + Therapy Session services. Intake forms are cleared in teardown so Phase-2 lifecycle tests continue to pass. After full backend+frontend testing the Initial Consultation intake form was reset to empty via API.",
+  "mocked_integrations": [
+    "Resend email (RESEND_API_KEY empty) -> send_email() falls back to [EMAIL:CONSOLE] log. Verified backend.err.log contains '[EMAIL:CONSOLE]' with subject 'New booking' after intake bookings."
+  ],
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend tests live at /app/backend/tests/test_intake_forms.py and /app/backend/tests/test_practora_lifecycle.py. Run with: REACT_APP_BACKEND_URL=https://practora-bookings.preview.emergentagent.com MONGO_URL=mongodb://localhost:27017 DB_NAME=practora_db pytest backend/tests -v. The intake module has a module-scope autouse teardown that clears intake forms on all of anjali's services to keep lifecycle tests green. New analytics collection: db.booking_intake_answers with fields {id, booking_id, pro_id, service_id, question_id, question_text, question_type, answer, answer_lower, created_at}. The booking schema now carries intake_answers (snapshot list). Public intake form endpoint is /api/p/{slug}/services/{id}/intake-form (note: review_request referenced /api/p/practora-bookings/services/{id}/intake-form which was a typo). Frontend stepper is dynamic 3-vs-4 dots based on service.intake_questions length."
+}

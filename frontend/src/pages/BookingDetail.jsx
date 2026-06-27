@@ -97,6 +97,20 @@ export default function BookingDetail() {
             )}
           </div>
 
+          {(b.intake_answers && b.intake_answers.length > 0) && (
+            <div className="paper-card p-6" data-testid="intake-answers-section">
+              <h3 className="font-heading text-2xl flex items-center gap-2"><History className="h-5 w-5" /> Intake answers</h3>
+              <div className="mt-4 divide-y divide-border">
+                {b.intake_answers.map((a, i) => (
+                  <div key={i} className="py-3 first:pt-0 last:pb-0 text-sm" data-testid={`intake-answer-${i}`}>
+                    <p className="text-cocoaSoft uppercase tracking-[0.15em] text-xs">{a.question_text}</p>
+                    <p className="font-medium mt-1 whitespace-pre-wrap break-words">{a.answer || <span className="text-cocoaSoft italic">(no answer)</span>}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {isActive && (
             <div className="paper-card p-6">
               <h3 className="font-heading text-2xl">Actions</h3>

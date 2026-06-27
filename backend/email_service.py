@@ -102,12 +102,25 @@ def render_booking_confirmed_customer(b: dict, pro_name: str, manage_url: str) -
 
 
 def render_booking_confirmed_pro(b: dict, pro_name: str, detail_url: str) -> dict:
+    intake_html = ""
+    if b.get("intake_answers"):
+        rows = "".join(
+            f"<tr><td style='padding:6px 0;color:#7A685D;width:42%;vertical-align:top;'>{a['question_text']}</td>"
+            f"<td style='padding:6px 0;'>{a['answer'] or '—'}</td></tr>"
+            for a in b["intake_answers"]
+        )
+        intake_html = (
+            '<div style="margin-top:18px;border-top:1px solid #E8DED1;padding-top:14px;">'
+            '<p style="font-size:11px;text-transform:uppercase;letter-spacing:0.15em;color:#7A685D;margin:0 0 8px 0;">Intake answers</p>'
+            f'<table style="width:100%;font-size:13px;border-collapse:collapse;">{rows}</table></div>'
+        )
     body = f"""
       <h2 style="font-family:'Cormorant Garamond',Georgia,serif;font-size:26px;margin:0 0 6px 0;">New booking</h2>
       <p style="color:#7A685D;margin:0 0 8px 0;">{b['customer_name']} just booked you.</p>
       {_summary(b, pro_name)}
       <p style="font-size:14px;"><strong>Email:</strong> {b['customer_email']}<br/><strong>Phone:</strong> {b.get('customer_phone') or '—'}</p>
       {('<p style="font-size:14px;"><strong>Note from client:</strong> ' + b['notes'] + '</p>') if b.get('notes') else ''}
+      {intake_html}
       <p style="margin-top:18px;">{_btn(detail_url, 'View in dashboard')}</p>
     """
     text = f"New booking from {b['customer_name']} on {b['date']} at {b['start_time']}."
