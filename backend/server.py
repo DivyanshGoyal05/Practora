@@ -553,9 +553,14 @@ async def public_book(slug: str, body: BookingIn):
         if q.get("required") and not ans:
             raise HTTPException(400, f"'{q['text']}' is required")
         if ans:
-            err = validate_intake_answer(q["type"], ans)
-            if err:
-                raise HTTPException(400, f"{q['text']}: {err}")
+            if q["type"] == "dropdown":
+                allowed = q.get("options", []) or []
+                if ans not in allowed:
+                    raise HTTPException(400, f"'{q['text']}': invalid option")
+            else:
+                err = validate_intake_answer(q["type"], ans)
+                if err:
+                    raise HTTPException(400, f"{q['text']}: {err}")
         snapshot.append({
             "question_id": q["id"],
             "question_text": q["text"],
