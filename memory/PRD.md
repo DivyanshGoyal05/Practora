@@ -50,7 +50,9 @@ SaaS booking platform for independent professionals (astrologers, doctors, thera
 - Public booking page shows "temporarily unavailable" if pro has no access
 - Bookings blocked (HTTP 402) for pros without active subscription/trial
 - Webhook: subscription.activated/charged/halted/cancelled etc. sync local state
+- Razorpay Standard Checkout endpoints (`POST /api/create-order`, `POST /api/verify-payment`) also available for one-time payments
 - No per-booking commission — subscription-only model
+- Verified end-to-end with real Razorpay TEST keys (subscription created: `sub_...`, plan: `plan_...`, order: `order_...`)
 
 ### P1 — Trust & Conversion (Slice C)
 - Reviews (1–5 stars + text) with verified-booking gate, displayed on `/:slug`

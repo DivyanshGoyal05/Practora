@@ -1025,6 +1025,94 @@ async def admin_list_subscriptions(_=Depends(get_admin_user)):
         "created_at": u.get("created_at"),
     } for u in users]
 
+# --- Razorpay Standard Checkout (one-time orders) -----------------
+import hmac as _hmac
+import hashlib as _hashlib
+
+class CreateOrderIn(BaseModel):
+    amount: int = Field(ge=100, description="Amount in paise; minimum 100 (₹1)")
+    currency: str = Field(default="INR", min_length=3, max_length=3)
+    receipt: Optional[str] = None
+    notes: Optional[dict] = None
+
+@api.post("/create-order")
+async def create_order(body: CreateOrderIn):
+    """Create a Razorpay Order for Standard Checkout (one-time payment)."""
+    if not rp_is_configured():
+        raise HTTPException(503, "Payments are not configured on the server.")
+    try:
+        import razorpay
+        client = razorpay.Client(auth=(os.environ["RAZORPAY_KEY_ID"], os.environ["RAZORPAY_KEY_SECRET"]))
+        order = client.order.create({
+            "amount": body.amount,
+            "currency": body.currency,
+            "receipt": body.receipt or f"rcpt_{int(now_utc().timestamp())}",
+            "notes": body.notes or {},
+            "payment_capture": 1,
+        })
+    except Exception as e:
+        logger.exception("Razorpay order.create failed")
+        raise HTTPException(500, f"Failed to create order: {e}")
+    # Record order for audit
+    await db.orders.insert_one({
+        "id": order["id"],
+        "amount": order["amount"],
+        "currency": order["currency"],
+        "receipt": order.get("receipt"),
+        "status": order.get("status"),
+        "notes": order.get("notes", {}),
+        "created_at": now_iso(),
+    })
+    return {
+        "order_id": order["id"],
+        "amount": order["amount"],
+        "currency": order["currency"],
+        "key_id": os.environ["RAZORPAY_KEY_ID"],
+        "receipt": order.get("receipt"),
+    }
+
+
+class VerifyPaymentIn(BaseModel):
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+@api.post("/verify-payment")
+async def verify_payment(body: VerifyPaymentIn):
+    """Verify Razorpay payment signature (HMAC-SHA256 of order_id|payment_id)."""
+    secret = os.environ.get("RAZORPAY_KEY_SECRET", "").strip()
+    if not secret:
+        raise HTTPException(503, "Payments are not configured on the server.")
+    if not (body.razorpay_order_id and body.razorpay_payment_id and body.razorpay_signature):
+        raise HTTPException(400, "Missing required fields.")
+
+    payload = f"{body.razorpay_order_id}|{body.razorpay_payment_id}".encode("utf-8")
+    expected = _hmac.new(secret.encode("utf-8"), payload, _hashlib.sha256).hexdigest()
+    if not _hmac.compare_digest(expected, body.razorpay_signature):
+        # Record the failed verification
+        await db.orders.update_one(
+            {"id": body.razorpay_order_id},
+            {"$set": {"last_verification_status": "failed", "last_verified_at": now_iso()}},
+        )
+        raise HTTPException(400, "Signature verification failed.")
+
+    await db.orders.update_one(
+        {"id": body.razorpay_order_id},
+        {"$set": {
+            "status": "paid",
+            "razorpay_payment_id": body.razorpay_payment_id,
+            "razorpay_signature": body.razorpay_signature,
+            "last_verification_status": "success",
+            "last_verified_at": now_iso(),
+        }},
+    )
+    return {
+        "verified": True,
+        "razorpay_order_id": body.razorpay_order_id,
+        "razorpay_payment_id": body.razorpay_payment_id,
+    }
+
+
 # --- App init --------------------------------------------------------
 app.include_router(api)
 
