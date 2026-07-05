@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta
 import pytest
 import requests
 
-BASE_URL = os.environ['REACT_APP_BACKEND_URL'].rstrip('/') if os.environ.get('REACT_APP_BACKEND_URL') else 'https://practora-bookings.preview.emergentagent.com'
+BASE_URL = os.environ['REACT_APP_BACKEND_URL'].rstrip('/') if os.environ.get('REACT_APP_BACKEND_URL') else 'https://work-in-progress-112.preview.emergentagent.com'
 API = f"{BASE_URL}/api"
 
 PRO_EMAIL = "anjali@practora.in"
