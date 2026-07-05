@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Calendar, Sparkles, Globe, ShieldCheck, Clock, Quote } from "lucide-react";
+import api from "@/lib/api";
 
 const features = [
   { icon: Globe, title: "Your own booking URL", body: "practora.in/your-name — share it on WhatsApp, Insta bio, or your site." },
@@ -13,6 +14,20 @@ const features = [
 const categories = ["Astrologers", "Doctors", "Therapists", "Dieticians", "Coaches", "Yoga Teachers", "Tutors", "Consultants"];
 
 export default function Marketing() {
+  const [pricing, setPricing] = useState({ subscription_amount_inr: 500, trial_days: 7 });
+
+  useEffect(() => {
+    api.get("/settings/public")
+      .then((r) => setPricing({
+        subscription_amount_inr: r.data.subscription_amount_inr ?? 500,
+        trial_days: r.data.trial_days ?? 7,
+      }))
+      .catch(() => {});
+  }, []);
+
+  const price = pricing.subscription_amount_inr;
+  const trialLabel = pricing.trial_days > 0 ? `${pricing.trial_days}-day free trial` : "No setup fees";
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* Nav */}
@@ -67,9 +82,9 @@ export default function Marketing() {
               </a>
             </div>
             <div className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-xs text-cocoaSoft">
-              <span>✓ ₹99 first month</span>
+              <span>✓ {trialLabel}</span>
+              <span>✓ No commission on bookings</span>
               <span>✓ Cancel anytime</span>
-              <span>✓ Set up in 10 minutes</span>
             </div>
           </div>
 
@@ -88,8 +103,8 @@ export default function Marketing() {
               </div>
               <div className="col-span-3 paper-card p-4 grain relative overflow-hidden">
                 <Sparkles className="h-5 w-5 text-primary" />
-                <p className="font-heading text-2xl mt-2 leading-tight">99<span className="text-base align-top">₹</span></p>
-                <p className="text-xs text-cocoaSoft mt-1">first month</p>
+                <p className="font-heading text-2xl mt-2 leading-tight">{price}<span className="text-base align-top">₹</span></p>
+                <p className="text-xs text-cocoaSoft mt-1">per month</p>
               </div>
               <div className="col-span-3 paper-card p-4">
                 <p className="text-xs uppercase tracking-[0.15em] text-cocoaSoft">Next session</p>
@@ -171,24 +186,24 @@ export default function Marketing() {
           <div className="col-span-12 md:col-span-6">
             <span className="text-xs tracking-[0.18em] uppercase text-cocoaSoft">Pricing</span>
             <h2 className="font-heading text-4xl md:text-5xl mt-3 leading-tight">One plan. <em className="text-primary not-italic font-light">Honest pricing.</em></h2>
-            <p className="mt-4 text-cocoaSoft max-w-md">Start at ₹99 for your first month. Then ₹499/month after that. 5% platform fee on bookings. No setup fees. Cancel anytime.</p>
+            <p className="mt-4 text-cocoaSoft max-w-md">Flat ₹{price} per month. {pricing.trial_days > 0 ? `Start with a ${pricing.trial_days}-day free trial — no card needed. ` : ""}Zero commission on your bookings, ever. Cancel anytime.</p>
           </div>
           <div className="col-span-12 md:col-span-6">
             <div className="paper-card p-8 relative overflow-hidden">
               <div className="absolute -top-10 -right-10 h-40 w-40 bg-accent/30 rounded-full blur-3xl" />
               <p className="text-xs tracking-[0.18em] uppercase text-cocoaSoft">Practora Pro</p>
               <div className="flex items-baseline gap-2 mt-3">
-                <span className="font-heading text-6xl">₹99</span>
-                <span className="text-cocoaSoft text-sm">first month</span>
+                <span className="font-heading text-6xl">₹{price}</span>
+                <span className="text-cocoaSoft text-sm">/ month</span>
               </div>
-              <p className="text-sm text-cocoaSoft mt-1">then ₹499 / month + 5% per booking</p>
+              <p className="text-sm text-cocoaSoft mt-1">{pricing.trial_days > 0 ? `${pricing.trial_days}-day free trial · ` : ""}No commission on bookings</p>
               <ul className="mt-6 space-y-2 text-sm">
-                {["Your own booking URL","Unlimited services & bookings","Smart availability","Customer notifications","Cancel anytime"].map((it) => (
+                {["Your own booking URL","Unlimited services & bookings","Smart availability & reminders","Custom intake forms","Keep 100% of every booking","Cancel anytime"].map((it) => (
                   <li key={it} className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-primary" /> {it}</li>
                 ))}
               </ul>
               <Link to="/signup" data-testid="pricing-cta-signup">
-                <Button size="lg" className="rounded-full mt-8 w-full btn-lift">Start now for ₹99</Button>
+                <Button size="lg" className="rounded-full mt-8 w-full btn-lift">{pricing.trial_days > 0 ? `Start your free trial` : `Start for ₹${price}/month`}</Button>
               </Link>
             </div>
           </div>

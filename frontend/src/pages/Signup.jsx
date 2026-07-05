@@ -17,8 +17,18 @@ export default function Signup() {
   const [form, setForm] = useState({ name: "", email: "", password: "", slug: "", category: "Therapist" });
   const [submitting, setSubmitting] = useState(false);
   const [slugStatus, setSlugStatus] = useState(null); // null | 'ok' | 'taken' | 'checking'
+  const [pricing, setPricing] = useState({ subscription_amount_inr: 500, trial_days: 7 });
 
   const setField = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target?.value ?? e }));
+
+  useEffect(() => {
+    api.get("/settings/public")
+      .then((r) => setPricing({
+        subscription_amount_inr: r.data.subscription_amount_inr ?? 500,
+        trial_days: r.data.trial_days ?? 7,
+      }))
+      .catch(() => {});
+  }, []);
 
   // Live slug availability
   useEffect(() => {
@@ -72,7 +82,11 @@ export default function Signup() {
             <span className="font-heading text-2xl">Practora</span>
           </Link>
           <h1 className="font-heading text-4xl">Claim your URL</h1>
-          <p className="text-cocoaSoft mt-2">Start with ₹99 your first month.</p>
+          <p className="text-cocoaSoft mt-2">
+            {pricing.trial_days > 0
+              ? `${pricing.trial_days}-day free trial, then ₹${pricing.subscription_amount_inr}/month. No commission on bookings.`
+              : `₹${pricing.subscription_amount_inr}/month. No commission on bookings.`}
+          </p>
 
           <form onSubmit={submit} className="mt-8 space-y-5" data-testid="signup-form">
             <div className="space-y-2">
