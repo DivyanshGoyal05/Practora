@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { ArrowLeft, Calendar as CalIcon, Clock, IndianRupee, Mail, Phone, AlertTriangle, History, RotateCw, Ban, UserX } from "lucide-react";
+import { ArrowLeft, Calendar as CalIcon, Clock, IndianRupee, Mail, Phone, AlertTriangle, History, RotateCw, Ban, UserX, Video, MapPin, Pencil, Save, X } from "lucide-react";
 
 const STATUS_STYLES = {
   CONFIRMED: "bg-green-50 text-green-700 border-green-200",
@@ -33,6 +33,13 @@ const ACTION_LABELS = {
   BOOKING_NO_SHOW: "Marked no-show",
   REMINDER_SENT_24H: "24h reminder sent",
   REMINDER_SENT_1H: "1h reminder sent",
+  MEETING_UPDATED: "Meeting details updated",
+};
+
+const MODE_META = {
+  video:     { label: "Video call", icon: Video,  detailsLabel: "Meeting link", placeholder: "https://meet.google.com/…" },
+  in_person: { label: "In person",  icon: MapPin, detailsLabel: "Address",      placeholder: "Clinic address, landmark…" },
+  phone:     { label: "Phone call", icon: Phone,  detailsLabel: "Phone number", placeholder: "Phone number you'll call from" },
 };
 
 export default function BookingDetail() {
@@ -96,6 +103,8 @@ export default function BookingDetail() {
               </div>
             )}
           </div>
+
+          <MeetingCard booking={b} onUpdate={load} />
 
           {(b.intake_answers && b.intake_answers.length > 0) && (
             <div className="paper-card p-6" data-testid="intake-answers-section">
@@ -328,5 +337,128 @@ function NoShowDialog({ open, onOpenChange, booking, onDone }) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function MeetingCard({ booking, onUpdate }) {
+  const [editing, setEditing] = useState(false);
+  const [mode, setMode] = useState(booking.meeting_mode || "video");
+  const [details, setDetails] = useState(booking.meeting_details || booking.meet_link || "");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setMode(booking.meeting_mode || "video");
+    setDetails(booking.meeting_details || booking.meet_link || "");
+  }, [booking.id, booking.meeting_mode, booking.meeting_details]);
+
+  const currentMeta = MODE_META[booking.meeting_mode || "video"] || MODE_META.video;
+  const CurrentIcon = currentMeta.icon;
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.patch(`/me/bookings/${booking.id}/meeting`, { meeting_mode: mode, meeting_details: details.trim() });
+      toast.success("Meeting details updated");
+      setEditing(false);
+      onUpdate && onUpdate();
+    } catch (err) {
+      toast.error(formatApiError(err.response?.data?.detail) || "Could not update");
+    } finally { setSaving(false); }
+  };
+
+  const cancel = () => {
+    setEditing(false);
+    setMode(booking.meeting_mode || "video");
+    setDetails(booking.meeting_details || booking.meet_link || "");
+  };
+
+  const currentDetails = booking.meeting_details || booking.meet_link || "";
+  const isVideo = (booking.meeting_mode || "video") === "video";
+
+  return (
+    <div className="paper-card p-6" data-testid="meeting-card">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="h-9 w-9 rounded-full bg-primary/10 grid place-items-center">
+            <CurrentIcon className="h-4 w-4 text-primary" />
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-[0.15em] text-cocoaSoft">Meeting</p>
+            <p className="font-heading text-xl leading-tight">{currentMeta.label}</p>
+          </div>
+        </div>
+        {!editing && (
+          <Button variant="ghost" size="sm" onClick={() => setEditing(true)} data-testid="edit-meeting-button">
+            <Pencil className="h-3.5 w-3.5 mr-1.5" /> Edit
+          </Button>
+        )}
+      </div>
+
+      {!editing ? (
+        <div className="mt-4">
+          {currentDetails ? (
+            isVideo ? (
+              <a href={currentDetails} target="_blank" rel="noreferrer" className="text-primary hover:underline break-all text-sm" data-testid="meeting-details-value">{currentDetails}</a>
+            ) : (
+              <p className="text-sm whitespace-pre-wrap break-words" data-testid="meeting-details-value">{currentDetails}</p>
+            )
+          ) : (
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5" data-testid="meeting-empty-warning">
+              No {currentMeta.detailsLabel.toLowerCase()} set. The customer will see a placeholder in their confirmation. Click Edit to add it.
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="mt-4 space-y-3">
+          <div className="grid grid-cols-3 gap-2">
+            {Object.entries(MODE_META).map(([key, m]) => {
+              const Icon = m.icon;
+              const active = mode === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setMode(key)}
+                  className={`text-left border rounded-lg px-3 py-2 transition ${active ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
+                  data-testid={`edit-meeting-mode-${key}`}
+                >
+                  <Icon className={`h-4 w-4 ${active ? "text-primary" : "text-cocoaSoft"}`} />
+                  <p className="text-xs mt-1 font-medium">{m.label}</p>
+                </button>
+              );
+            })}
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs uppercase tracking-[0.14em] text-cocoaSoft">{MODE_META[mode].detailsLabel}</label>
+            {mode === "in_person" ? (
+              <Textarea
+                value={details}
+                onChange={(e) => setDetails(e.target.value)}
+                placeholder={MODE_META[mode].placeholder}
+                rows={2}
+                data-testid="edit-meeting-details-input"
+              />
+            ) : (
+              <input
+                type="text"
+                value={details}
+                onChange={(e) => setDetails(e.target.value)}
+                placeholder={MODE_META[mode].placeholder}
+                className="w-full h-10 rounded-md border border-border bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                data-testid="edit-meeting-details-input"
+              />
+            )}
+          </div>
+          <div className="flex gap-2 justify-end pt-1">
+            <Button variant="ghost" size="sm" onClick={cancel} disabled={saving}>
+              <X className="h-3.5 w-3.5 mr-1.5" /> Cancel
+            </Button>
+            <Button size="sm" onClick={save} disabled={saving} className="rounded-full" data-testid="save-meeting-button">
+              <Save className="h-3.5 w-3.5 mr-1.5" /> {saving ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

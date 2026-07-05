@@ -77,6 +77,7 @@ class Action:
     BOOKING_NO_SHOW = "BOOKING_NO_SHOW"
     REMINDER_SENT_24H = "REMINDER_SENT_24H"
     REMINDER_SENT_1H = "REMINDER_SENT_1H"
+    MEETING_UPDATED = "MEETING_UPDATED"
 
 # --- Helpers ---------------------------------------------------------
 def now_utc():
@@ -216,6 +217,8 @@ class ServiceIn(BaseModel):
     duration_min: int = Field(ge=5, le=480)
     price: float = Field(ge=0)
     cover_image: str = ""
+    meeting_mode: str = Field(default="video", pattern="^(video|in_person|phone)$")
+    meeting_details: str = ""  # default video link OR clinic address OR phone number
 
 class ScheduleDay(BaseModel):
     enabled: bool = False
@@ -603,6 +606,11 @@ async def public_book(slug: str, body: BookingIn):
         })
 
     end_time = compute_end_time(body.start_time, service["duration_min"])
+    svc_mode = service.get("meeting_mode") or "video"
+    svc_details = service.get("meeting_details") or ""
+    # If service has no default and pro has a legacy static meet_link, use it (video mode only)
+    if svc_mode == "video" and not svc_details:
+        svc_details = user.get("meet_link", "") or ""
     booking = {
         "id": str(uuid.uuid4()),
         "pro_id": user["id"],
@@ -617,7 +625,9 @@ async def public_book(slug: str, body: BookingIn):
         "customer_email": body.customer_email.lower(),
         "customer_phone": body.customer_phone,
         "notes": body.notes,
-        "meet_link": user.get("meet_link", ""),
+        "meeting_mode": svc_mode,
+        "meeting_details": svc_details,
+        "meet_link": svc_details if svc_mode == "video" else "",  # kept for backward-compat
         "status": Status.CONFIRMED,
         "customer_access_token": secrets.token_urlsafe(24),
         "reminder_24h_sent": False,
@@ -809,6 +819,32 @@ async def pro_no_show(booking_id: str, body: NoShowIn, user=Depends(get_current_
         {"$set": {"status": Status.NO_SHOW, "completed_at": now_iso()}})
     await log_activity(b["id"], Action.BOOKING_NO_SHOW, "professional", user["id"], {"reason": body.reason})
     return {"ok": True}
+
+class MeetingUpdateIn(BaseModel):
+    meeting_mode: Optional[str] = Field(default=None, pattern="^(video|in_person|phone)$")
+    meeting_details: Optional[str] = None
+
+@api.patch("/me/bookings/{booking_id}/meeting")
+async def pro_update_meeting(booking_id: str, body: MeetingUpdateIn, user=Depends(get_current_user)):
+    b = await db.bookings.find_one({"id": booking_id, "pro_id": user["id"]}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Booking not found")
+    updates: dict = {}
+    if body.meeting_mode is not None:
+        updates["meeting_mode"] = body.meeting_mode
+    if body.meeting_details is not None:
+        updates["meeting_details"] = body.meeting_details.strip()
+        # keep backward-compat meet_link field mirrored when mode is video (or unset)
+        effective_mode = body.meeting_mode or b.get("meeting_mode", "video")
+        if effective_mode == "video":
+            updates["meet_link"] = body.meeting_details.strip()
+    if not updates:
+        return b
+    updates["meeting_updated_at"] = now_iso()
+    await db.bookings.update_one({"id": b["id"]}, {"$set": updates})
+    await log_activity(b["id"], Action.MEETING_UPDATED, "professional", user["id"], updates)
+    fresh = await db.bookings.find_one({"id": b["id"]}, {"_id": 0})
+    return fresh
 
 # --- Shared mutation helpers ----------------------------------------
 async def _do_reschedule(b: dict, pro: dict, new_date: str, new_start: str, reason: str, actor_type: str, actor_id: Optional[str]):
@@ -1212,6 +1248,19 @@ async def migrate():
         {"intake_questions": {"$exists": False}},
         {"$set": {"intake_questions": []}},
     )
+
+    # Services without meeting_mode → default 'video' with empty details
+    await db.services.update_many(
+        {"meeting_mode": {"$exists": False}},
+        {"$set": {"meeting_mode": "video", "meeting_details": ""}},
+    )
+
+    # Bookings without meeting_mode → backfill from service/user
+    async for b in db.bookings.find({"meeting_mode": {"$exists": False}}, {"_id": 0, "id": 1, "meet_link": 1, "service_id": 1}):
+        svc = await db.services.find_one({"id": b.get("service_id")}, {"_id": 0}) or {}
+        mode = svc.get("meeting_mode") or "video"
+        details = svc.get("meeting_details") or b.get("meet_link", "")
+        await db.bookings.update_one({"id": b["id"]}, {"$set": {"meeting_mode": mode, "meeting_details": details}})
 
     # Default policies for users missing them
     await db.users.update_many({"policies": {"$exists": False}}, {"$set": {"policies": default_policies()}})

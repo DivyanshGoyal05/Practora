@@ -69,6 +69,51 @@ def _wrap(inner_html: str) -> str:
     """
 
 
+def _meeting_html(b: dict) -> str:
+    """Renders the meeting info block for emails based on meeting_mode + meeting_details."""
+    mode = (b.get("meeting_mode") or "video").lower()
+    details = (b.get("meeting_details") or b.get("meet_link") or "").strip()
+    if mode == "in_person":
+        if not details:
+            return ""
+        # HTML-escape for safety on user-entered address
+        safe = details.replace("<", "&lt;").replace(">", "&gt;")
+        return (
+            '<div style="margin:12px 0;padding:12px 14px;background:#F5EFE6;border-radius:10px;font-size:14px;">'
+            '<p style="margin:0 0 4px 0;font-size:11px;text-transform:uppercase;letter-spacing:0.15em;color:#7A685D;">In-person meeting</p>'
+            f'<p style="margin:0;white-space:pre-wrap;">{safe}</p></div>'
+        )
+    if mode == "phone":
+        if not details:
+            return ""
+        return (
+            '<div style="margin:12px 0;padding:12px 14px;background:#F5EFE6;border-radius:10px;font-size:14px;">'
+            '<p style="margin:0 0 4px 0;font-size:11px;text-transform:uppercase;letter-spacing:0.15em;color:#7A685D;">Phone call</p>'
+            f'<p style="margin:0;">The professional will call you on <strong>{details}</strong>.</p></div>'
+        )
+    # default: video
+    if not details:
+        return (
+            '<div style="margin:12px 0;padding:12px 14px;background:#FFF7EE;border-radius:10px;font-size:13px;color:#8A6B33;">'
+            'The video meeting link will be shared before the session.</div>'
+        )
+    return (
+        '<div style="margin:12px 0;padding:12px 14px;background:#F5EFE6;border-radius:10px;font-size:14px;">'
+        '<p style="margin:0 0 4px 0;font-size:11px;text-transform:uppercase;letter-spacing:0.15em;color:#7A685D;">Video meeting</p>'
+        f'<p style="margin:0;"><a href="{details}" style="color:#C86B53;">{details}</a></p></div>'
+    )
+
+
+def _meeting_text(b: dict) -> str:
+    mode = (b.get("meeting_mode") or "video").lower()
+    details = (b.get("meeting_details") or b.get("meet_link") or "").strip()
+    if mode == "in_person":
+        return f"\nIn-person location: {details}" if details else ""
+    if mode == "phone":
+        return f"\nPhone: the professional will call you on {details}" if details else ""
+    return f"\nMeeting link: {details}" if details else "\nMeeting link will be shared before the session."
+
+
 def _btn(href: str, label: str, color: str = "#C86B53") -> str:
     return (
         f'<a href="{href}" style="display:inline-block;background:{color};color:#fff;'
@@ -93,11 +138,11 @@ def render_booking_confirmed_customer(b: dict, pro_name: str, manage_url: str) -
       <h2 style="font-family:'Cormorant Garamond',Georgia,serif;font-size:28px;margin:0 0 6px 0;">You're booked, {b['customer_name'].split(' ')[0]}.</h2>
       <p style="color:#7A685D;margin:0 0 8px 0;">Your session is confirmed.</p>
       {_summary(b, pro_name)}
-      {('<p>Meeting link: <a href="' + b['meet_link'] + '" style="color:#C86B53;">' + b['meet_link'] + '</a></p>') if b.get('meet_link') else ''}
+      {_meeting_html(b)}
       <p style="margin-top:18px;">{_btn(manage_url, 'Manage booking')}</p>
       <p style="font-size:12px;color:#7A685D;">Need to reschedule or cancel? Use the button above.</p>
     """
-    text = f"Your booking is confirmed.\n{b['service_name']} with {pro_name}\n{b['date']} at {b['start_time']}\nManage: {manage_url}"
+    text = f"Your booking is confirmed.\n{b['service_name']} with {pro_name}\n{b['date']} at {b['start_time']}{_meeting_text(b)}\nManage: {manage_url}"
     return {"subject": f"Booking confirmed — {b['date']} at {b['start_time']}", "html": _wrap(body), "text": text}
 
 
@@ -158,8 +203,8 @@ def render_reminder(b: dict, pro_name: str, recipient: str, hours: int, manage_u
       <h2 style="font-family:'Cormorant Garamond',Georgia,serif;font-size:26px;margin:0 0 6px 0;">{headline}</h2>
       <p style="color:#7A685D;margin:0 0 8px 0;">A friendly reminder.</p>
       {_summary(b, pro_name)}
-      {('<p>Meeting link: <a href="' + b['meet_link'] + '" style="color:#C86B53;">' + b['meet_link'] + '</a></p>') if b.get('meet_link') else ''}
+      {_meeting_html(b)}
       <p style="margin-top:18px;">{_btn(manage_url, 'View booking')}</p>
     """
-    text = f"Reminder: {b['service_name']} on {b['date']} at {b['start_time']}."
+    text = f"Reminder: {b['service_name']} on {b['date']} at {b['start_time']}.{_meeting_text(b)}"
     return {"subject": f"Reminder — {b['date']} at {b['start_time']}", "html": _wrap(body), "text": text}

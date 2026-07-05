@@ -5,11 +5,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { Plus, Pencil, Trash2, Clock, IndianRupee, FileText } from "lucide-react";
+import { Plus, Pencil, Trash2, Clock, IndianRupee, FileText, Video, MapPin, Phone } from "lucide-react";
 import { toast } from "sonner";
 import IntakeFormBuilder from "@/components/IntakeFormBuilder";
 
-const emptyForm = { name: "", description: "", duration_min: 60, price: 1000, cover_image: "" };
+const emptyForm = { name: "", description: "", duration_min: 60, price: 1000, cover_image: "", meeting_mode: "video", meeting_details: "" };
+
+const MODE_META = {
+  video:     { label: "Video call",   icon: Video,  placeholder: "https://meet.google.com/… (leave empty to set per booking)", help: "Customer will get this link in their confirmation email." },
+  in_person: { label: "In person",    icon: MapPin, placeholder: "Clinic address or landmark…",  help: "Customer will see this address in their confirmation." },
+  phone:     { label: "Phone call",   icon: Phone,  placeholder: "Phone number you'll call from (optional)", help: "You'll call the customer on the phone number they provided." },
+};
 
 export default function Services() {
   const [services, setServices] = useState([]);
@@ -27,7 +33,7 @@ export default function Services() {
   useEffect(() => { load(); }, []);
 
   const openCreate = () => { setEditing(null); setForm(emptyForm); setOpen(true); };
-  const openEdit = (s) => { setEditing(s); setForm({ name: s.name, description: s.description, duration_min: s.duration_min, price: s.price, cover_image: s.cover_image || "" }); setOpen(true); };
+  const openEdit = (s) => { setEditing(s); setForm({ name: s.name, description: s.description, duration_min: s.duration_min, price: s.price, cover_image: s.cover_image || "", meeting_mode: s.meeting_mode || "video", meeting_details: s.meeting_details || "" }); setOpen(true); };
   const openIntake = (s) => { setIntakeService(s); setIntakeOpen(true); };
 
   const save = async (e) => {
@@ -95,6 +101,52 @@ export default function Services() {
                 <Label>Cover image URL (optional)</Label>
                 <Input value={form.cover_image} onChange={(e) => setForm({ ...form, cover_image: e.target.value })} placeholder="https://…" data-testid="service-image-input" />
               </div>
+
+              <div className="space-y-3 pt-2 border-t border-border">
+                <Label>How will you meet the customer?</Label>
+                <div className="grid grid-cols-3 gap-2" data-testid="meeting-mode-group">
+                  {Object.entries(MODE_META).map(([key, m]) => {
+                    const Icon = m.icon;
+                    const active = form.meeting_mode === key;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setForm({ ...form, meeting_mode: key })}
+                        className={`text-left border rounded-lg px-3 py-2.5 transition ${active ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}
+                        data-testid={`meeting-mode-${key}`}
+                      >
+                        <Icon className={`h-4 w-4 ${active ? "text-primary" : "text-cocoaSoft"}`} />
+                        <p className="text-sm mt-1 font-medium">{m.label}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-cocoaSoft">
+                    {form.meeting_mode === "in_person" ? "Address (default for this service)" :
+                     form.meeting_mode === "phone" ? "Your phone number (optional)" :
+                     "Default meeting link (optional)"}
+                  </Label>
+                  {form.meeting_mode === "in_person" ? (
+                    <Textarea
+                      value={form.meeting_details}
+                      onChange={(e) => setForm({ ...form, meeting_details: e.target.value })}
+                      placeholder={MODE_META[form.meeting_mode].placeholder}
+                      rows={2}
+                      data-testid="service-meeting-details"
+                    />
+                  ) : (
+                    <Input
+                      value={form.meeting_details}
+                      onChange={(e) => setForm({ ...form, meeting_details: e.target.value })}
+                      placeholder={MODE_META[form.meeting_mode].placeholder}
+                      data-testid="service-meeting-details"
+                    />
+                  )}
+                  <p className="text-[11px] text-cocoaSoft">{MODE_META[form.meeting_mode].help} You can override this per booking.</p>
+                </div>
+              </div>
               <DialogFooter>
                 <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
                 <Button type="submit" className="rounded-full" data-testid="service-save-button">{editing ? "Save changes" : "Add service"}</Button>
@@ -120,9 +172,14 @@ export default function Services() {
               <div key={s.id} className="paper-card p-5 flex flex-col" data-testid={`service-card-${s.id}`}>
                 <h3 className="font-heading text-2xl leading-tight">{s.name}</h3>
                 {s.description && <p className="text-sm text-cocoaSoft mt-2 line-clamp-3 flex-1">{s.description}</p>}
-                <div className="flex items-center gap-4 mt-4 text-sm text-cocoaSoft">
+                <div className="flex items-center gap-4 mt-4 text-sm text-cocoaSoft flex-wrap">
                   <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {s.duration_min} min</span>
                   <span className="flex items-center gap-1"><IndianRupee className="h-3.5 w-3.5" /> {s.price}</span>
+                  {(() => {
+                    const meta = MODE_META[s.meeting_mode || "video"];
+                    const Icon = meta.icon;
+                    return <span className="flex items-center gap-1" data-testid={`service-mode-${s.id}`}><Icon className="h-3.5 w-3.5" /> {meta.label}</span>;
+                  })()}
                 </div>
                 <button
                   type="button"
