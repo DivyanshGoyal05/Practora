@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { Calendar, IndianRupee, Users, TrendingUp, ArrowRight, Sparkles, ExternalLink, Copy } from "lucide-react";
+import { Calendar, IndianRupee, Users, TrendingUp, ArrowRight, Sparkles, ExternalLink, Copy, AlertCircle, Clock } from "lucide-react";
 import { toast } from "sonner";
 
 function StatBlock({ icon: Icon, label, value, testid }) {
@@ -22,10 +22,12 @@ export default function Dashboard() {
   const { user } = useAuth();
   const [stats, setStats] = useState(null);
   const [bookings, setBookings] = useState([]);
+  const [subInfo, setSubInfo] = useState(null);
 
   useEffect(() => {
     api.get("/me/stats").then((r) => setStats(r.data));
     api.get("/me/bookings").then((r) => setBookings(r.data));
+    api.get("/me/subscription").then((r) => setSubInfo(r.data)).catch(() => {});
   }, []);
 
   const upcoming = bookings.filter((b) => b.status !== "cancelled").slice(0, 5);
@@ -37,8 +39,33 @@ export default function Dashboard() {
     toast.success("Booking link copied");
   };
 
+  // Subscription banner
+  const trialEnds = subInfo?.trial_ends_at;
+  const daysLeftInTrial = trialEnds ? Math.max(0, Math.ceil((new Date(trialEnds) - new Date()) / 86400000)) : null;
+  const isTrial = subInfo?.reason === "trial";
+  const noAccess = subInfo && !subInfo.has_access;
+
   return (
     <div className="space-y-8 animate-fade-up" data-testid="dashboard-overview">
+      {noAccess && (
+        <div className="paper-card p-5 border-rose-200 bg-rose-50 flex items-start gap-3" data-testid="dashboard-no-access-banner">
+          <AlertCircle className="h-5 w-5 text-rose-700 mt-0.5" />
+          <div className="flex-1">
+            <p className="font-medium text-rose-800">Your booking page is currently unavailable</p>
+            <p className="text-sm text-rose-700 mt-1">Subscribe to reactivate your public page and continue accepting bookings.</p>
+          </div>
+          <Link to="/dashboard/billing"><Button size="sm" data-testid="banner-subscribe-button">Subscribe now</Button></Link>
+        </div>
+      )}
+      {isTrial && subInfo?.has_access && (
+        <div className="paper-card p-4 border-amber-200 bg-amber-50 flex items-center gap-3" data-testid="dashboard-trial-banner">
+          <Clock className="h-4 w-4 text-amber-700" />
+          <p className="text-sm text-amber-800 flex-1">
+            You&apos;re on a free trial — {daysLeftInTrial ?? 0} day{daysLeftInTrial === 1 ? "" : "s"} left. Subscribe anytime to lock in access.
+          </p>
+          <Link to="/dashboard/billing" className="text-sm text-primary hover:underline font-medium" data-testid="trial-billing-link">Manage billing →</Link>
+        </div>
+      )}
       {/* Greeting + Page card */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-2">

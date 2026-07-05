@@ -27,6 +27,18 @@ from email_service import (
     render_booking_cancelled,
 )
 from scheduler import run_scheduler, parse_booking_dt, IST
+from razorpay_service import (
+    get_settings as rp_get_settings,
+    ensure_plan as rp_ensure_plan,
+    create_subscription_for_user as rp_create_subscription,
+    cancel_subscription as rp_cancel_subscription,
+    verify_webhook_signature as rp_verify_webhook,
+    handle_webhook_event as rp_handle_webhook,
+    user_has_platform_access as rp_has_access,
+    is_configured as rp_is_configured,
+    TRIAL_DAYS,
+    DEFAULT_SUBSCRIPTION_AMOUNT_INR,
+)
 
 # --- Setup -----------------------------------------------------------
 mongo_url = os.environ['MONGO_URL']
@@ -102,6 +114,14 @@ def serialize_user(u: dict) -> dict:
         "instagram": u.get("instagram", ""), "website": u.get("website", ""),
         "meet_link": u.get("meet_link", ""),
         "policies": u.get("policies", default_policies()),
+        "subscription_status": u.get("subscription_status", "none"),
+        "subscription_id": u.get("subscription_id"),
+        "subscription_amount_inr": u.get("subscription_amount_inr"),
+        "subscription_current_end": u.get("subscription_current_end"),
+        "subscription_charge_at": u.get("subscription_charge_at"),
+        "subscription_last_payment_at": u.get("subscription_last_payment_at"),
+        "subscription_cancel_at_cycle_end": u.get("subscription_cancel_at_cycle_end", False),
+        "trial_ends_at": u.get("trial_ends_at"),
         "created_at": u.get("created_at"),
     }
 
@@ -271,12 +291,17 @@ async def register(body: RegisterIn, response: Response):
         raise HTTPException(400, "This URL is already taken")
 
     user_id = str(uuid.uuid4())
+    trial_ends = (now_utc() + timedelta(days=TRIAL_DAYS)).isoformat()
     user_doc = {
         "id": user_id, "email": email, "password_hash": hash_password(body.password),
         "name": body.name.strip(), "role": "professional", "slug": slug, "category": body.category,
         "bio": "", "photo_url": "", "experience": "", "languages": [],
         "whatsapp": "", "instagram": "", "website": "", "meet_link": "",
         "policies": default_policies(),
+        "subscription_status": "trial",
+        "subscription_id": None,
+        "subscription_amount_inr": None,
+        "trial_ends_at": trial_ends,
         "created_at": now_iso(),
     }
     await db.users.insert_one(user_doc)
@@ -517,7 +542,12 @@ async def public_profile(slug: str):
     if not user:
         raise HTTPException(404, "Profile not found")
     services = await db.services.find({"pro_id": user["id"]}, {"_id": 0}).to_list(200)
-    return {"professional": serialize_user(user), "services": services}
+    has_access, _reason = rp_has_access(user)
+    return {
+        "professional": serialize_user(user),
+        "services": services,
+        "booking_enabled": has_access,
+    }
 
 @api.get("/p/{slug}/slots")
 async def public_slots(slug: str, date: str = Query(...), service_id: str = Query(...)):
@@ -534,6 +564,10 @@ async def public_book(slug: str, body: BookingIn):
     user = await db.users.find_one({"slug": slug.lower()})
     if not user:
         raise HTTPException(404, "Profile not found")
+    # Access gate — trial OR active subscription
+    allowed, _reason = rp_has_access(user)
+    if not allowed:
+        raise HTTPException(402, "This professional is not accepting bookings right now.")
     service = await db.services.find_one({"id": body.service_id, "pro_id": user["id"]}, {"_id": 0})
     if not service:
         raise HTTPException(404, "Service not found")
@@ -847,6 +881,150 @@ async def _do_cancel(b: dict, pro: dict, reason: str, actor_type: str, actor_id:
 async def root():
     return {"app": "Practora", "status": "ok"}
 
+# --- Public settings (subscription price, trial days) --------------
+@api.get("/settings/public")
+async def public_settings():
+    s = await rp_get_settings(db)
+    return {
+        "subscription_amount_inr": s["subscription_amount_inr"],
+        "trial_days": s.get("trial_days", TRIAL_DAYS),
+        "razorpay_configured": rp_is_configured(),
+    }
+
+# --- Pro subscription endpoints -------------------------------------
+def _access_snapshot(user: dict) -> dict:
+    allowed, reason = rp_has_access(user)
+    return {
+        "has_access": allowed,
+        "reason": reason,
+        "subscription_status": user.get("subscription_status", "none"),
+        "subscription_amount_inr": user.get("subscription_amount_inr"),
+        "trial_ends_at": user.get("trial_ends_at"),
+        "subscription_current_end": user.get("subscription_current_end"),
+        "subscription_charge_at": user.get("subscription_charge_at"),
+        "subscription_last_payment_at": user.get("subscription_last_payment_at"),
+        "subscription_id": user.get("subscription_id"),
+        "cancel_at_cycle_end": user.get("subscription_cancel_at_cycle_end", False),
+    }
+
+@api.get("/me/subscription")
+async def get_my_subscription(user=Depends(get_current_user)):
+    settings = await rp_get_settings(db)
+    fresh = await db.users.find_one({"id": user["id"]})
+    snap = _access_snapshot(fresh or user)
+    snap["platform_amount_inr"] = settings["subscription_amount_inr"]
+    snap["razorpay_configured"] = rp_is_configured()
+    # last 20 subscription events for this user
+    events = await db.subscription_events.find(
+        {"user_id": user["id"]}, {"_id": 0, "payload": 0}
+    ).sort("created_at", -1).to_list(20)
+    snap["recent_events"] = events
+    return snap
+
+@api.post("/me/subscription/create")
+async def create_my_subscription(user=Depends(get_current_user)):
+    if not rp_is_configured():
+        raise HTTPException(503, "Payments are not configured yet. Please contact support.")
+    # If already active, prevent duplicate
+    fresh = await db.users.find_one({"id": user["id"]})
+    status = (fresh or {}).get("subscription_status", "")
+    if status in {"active", "authenticated", "pending"}:
+        raise HTTPException(400, "You already have an active subscription.")
+    try:
+        result = await rp_create_subscription(db, fresh or user)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return result
+
+@api.post("/me/subscription/cancel")
+async def cancel_my_subscription(user=Depends(get_current_user)):
+    fresh = await db.users.find_one({"id": user["id"]})
+    if not fresh or not fresh.get("subscription_id"):
+        raise HTTPException(400, "No active subscription found.")
+    try:
+        result = await rp_cancel_subscription(db, fresh, cancel_at_cycle_end=True)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return result
+
+# --- Razorpay webhook -----------------------------------------------
+@api.post("/webhooks/razorpay")
+async def razorpay_webhook(request: Request):
+    raw = await request.body()
+    sig = request.headers.get("X-Razorpay-Signature", "")
+    if not rp_verify_webhook(raw, sig):
+        logger.warning("Razorpay webhook signature verification FAILED")
+        raise HTTPException(400, "Invalid signature")
+    try:
+        import json as _json
+        event = _json.loads(raw.decode("utf-8"))
+    except Exception:
+        raise HTTPException(400, "Invalid JSON")
+    return await rp_handle_webhook(db, event)
+
+# --- Admin endpoints -------------------------------------------------
+async def get_admin_user(user=Depends(get_current_user)) -> dict:
+    if user.get("role") != "admin":
+        raise HTTPException(403, "Admin access required")
+    return user
+
+class AdminSettingsIn(BaseModel):
+    subscription_amount_inr: int = Field(ge=1, le=100000)
+    trial_days: int = Field(ge=0, le=90, default=7)
+
+@api.get("/admin/settings")
+async def admin_get_settings(_=Depends(get_admin_user)):
+    s = await rp_get_settings(db)
+    s["razorpay_configured"] = rp_is_configured()
+    return s
+
+@api.put("/admin/settings")
+async def admin_update_settings(body: AdminSettingsIn, _=Depends(get_admin_user)):
+    current = await rp_get_settings(db)
+    updates = {
+        "subscription_amount_inr": body.subscription_amount_inr,
+        "trial_days": body.trial_days,
+        "updated_at": now_iso(),
+    }
+    # If amount changed, create a new Razorpay plan (if configured)
+    if body.subscription_amount_inr != current.get("subscription_amount_inr"):
+        if rp_is_configured():
+            new_plan_id = await rp_ensure_plan(db, body.subscription_amount_inr)
+            if not new_plan_id:
+                raise HTTPException(500, "Failed to create a new Razorpay plan for the new amount.")
+        else:
+            # Just store, plan will be created lazily when Razorpay is configured
+            updates["current_plan_id"] = None
+            updates["current_plan_amount_paise"] = body.subscription_amount_inr * 100
+    await db.settings.update_one(
+        {"id": "platform"},
+        {"$set": updates},
+        upsert=True,
+    )
+    fresh = await rp_get_settings(db)
+    fresh["razorpay_configured"] = rp_is_configured()
+    return fresh
+
+@api.get("/admin/subscriptions")
+async def admin_list_subscriptions(_=Depends(get_admin_user)):
+    users = await db.users.find(
+        {"role": "professional"}, {"_id": 0, "password_hash": 0}
+    ).sort("created_at", -1).to_list(1000)
+    return [{
+        "id": u["id"],
+        "name": u.get("name"),
+        "email": u.get("email"),
+        "slug": u.get("slug"),
+        "category": u.get("category"),
+        "subscription_status": u.get("subscription_status", "none"),
+        "subscription_id": u.get("subscription_id"),
+        "subscription_amount_inr": u.get("subscription_amount_inr"),
+        "trial_ends_at": u.get("trial_ends_at"),
+        "subscription_current_end": u.get("subscription_current_end"),
+        "subscription_last_payment_at": u.get("subscription_last_payment_at"),
+        "created_at": u.get("created_at"),
+    } for u in users]
+
 # --- App init --------------------------------------------------------
 app.include_router(api)
 
@@ -950,6 +1128,16 @@ async def migrate():
     # Default policies for users missing them
     await db.users.update_many({"policies": {"$exists": False}}, {"$set": {"policies": default_policies()}})
 
+    # Backfill trial_ends_at + subscription_status for existing pros (30-day generous trial for legacy users)
+    from datetime import timedelta as _td
+    legacy_trial_end = (now_utc() + _td(days=30)).isoformat()
+    await db.users.update_many(
+        {"role": "professional", "subscription_status": {"$exists": False}},
+        {"$set": {"subscription_status": "trial", "trial_ends_at": legacy_trial_end}},
+    )
+    # Ensure platform settings exist
+    await rp_get_settings(db)
+
 
 _scheduler_task: Optional[asyncio.Task] = None
 
@@ -963,6 +1151,9 @@ async def startup():
     await db.booking_activities.create_index([("booking_id", 1), ("created_at", -1)])
     await db.booking_intake_answers.create_index([("pro_id", 1), ("question_id", 1), ("answer_lower", 1)])
     await db.booking_intake_answers.create_index([("booking_id", 1)])
+    await db.subscription_events.create_index([("user_id", 1), ("created_at", -1)])
+    await db.subscription_events.create_index("razorpay_event_id")
+    await db.users.create_index("subscription_id", sparse=True)
     await seed_admin()
     await seed_demo()
     await migrate()

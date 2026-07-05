@@ -56,7 +56,20 @@ export default function PublicBooking() {
   if (error) return <NotFound />;
   if (!data) return <div className="min-h-screen grid place-items-center"><div className="h-8 w-8 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>;
 
-  const { professional: p, services } = data;
+  const { professional: p, services, booking_enabled } = data;
+  if (booking_enabled === false) {
+    return (
+      <div className="min-h-screen grid place-items-center text-center px-6">
+        <div className="max-w-md paper-card p-10" data-testid="pro-unavailable">
+          {p.photo_url && <img src={p.photo_url} alt={p.name} className="w-20 h-20 rounded-full object-cover mx-auto" />}
+          <p className="text-xs tracking-[0.18em] uppercase text-cocoaSoft mt-4">{p.category}</p>
+          <h1 className="font-heading text-3xl mt-1">{p.name}</h1>
+          <p className="text-cocoaSoft mt-4">This booking page is temporarily unavailable. Please check back soon.</p>
+          <Link to="/" className="text-primary hover:underline mt-6 inline-block">← Back to Practora</Link>
+        </div>
+      </div>
+    );
+  }
   const intakeQuestions = selectedService?.intake_questions || [];
   const hasIntake = intakeQuestions.length > 0;
 

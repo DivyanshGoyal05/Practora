@@ -14,6 +14,8 @@ import Profile from "@/pages/Profile";
 import Policies from "@/pages/Policies";
 import BookingsList from "@/pages/BookingsList";
 import BookingDetail from "@/pages/BookingDetail";
+import Billing from "@/pages/Billing";
+import AdminSettings from "@/pages/AdminSettings";
 import PublicBooking from "@/pages/PublicBooking";
 import BookingConfirmation from "@/pages/BookingConfirmation";
 import ManageBooking from "@/pages/ManageBooking";
@@ -54,7 +56,17 @@ function AppRoutes() {
         <Route path="policies" element={<Policies />} />
         <Route path="bookings" element={<BookingsList />} />
         <Route path="bookings/:id" element={<BookingDetail />} />
+        <Route path="billing" element={<Billing />} />
       </Route>
+
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute>
+            <AdminSettings />
+          </ProtectedRoute>
+        }
+      />
 
       <Route path="/booking/:id/manage" element={<ManageBooking />} />
       <Route path="/booking/:id" element={<BookingConfirmation />} />

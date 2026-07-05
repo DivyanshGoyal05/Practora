@@ -43,10 +43,14 @@ SaaS booking platform for independent professionals (astrologers, doctors, thera
 
 ## Prioritized Backlog (Phase 3+)
 
-### P0 — Monetization (Slice A)
-- Razorpay subscription: ₹99 first month → ₹499/mo for professionals
-- Razorpay booking payments: customer pays at booking (5% platform fee)
-- Payment status independent from booking lifecycle (`payment_status` field already exists)
+### P0 — Monetization (Slice A) ✅ (Phase 3 — 2026-07-05)
+- Razorpay Subscriptions for pros — ₹500/month (configurable via admin)
+- 7-day free trial from signup; legacy pros get 30-day grace period
+- Admin can change subscription amount and trial days (creates new Razorpay Plan)
+- Public booking page shows "temporarily unavailable" if pro has no access
+- Bookings blocked (HTTP 402) for pros without active subscription/trial
+- Webhook: subscription.activated/charged/halted/cancelled etc. sync local state
+- No per-booking commission — subscription-only model
 
 ### P1 — Trust & Conversion (Slice C)
 - Reviews (1–5 stars + text) with verified-booking gate, displayed on `/:slug`

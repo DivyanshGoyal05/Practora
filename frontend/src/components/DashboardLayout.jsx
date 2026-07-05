@@ -2,7 +2,7 @@ import React from "react";
 import { Outlet, NavLink, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { LayoutGrid, Calendar, Briefcase, Clock, UserCircle, LogOut, ExternalLink, Shield } from "lucide-react";
+import { LayoutGrid, Calendar, Briefcase, Clock, UserCircle, LogOut, ExternalLink, Shield, CreditCard } from "lucide-react";
 
 const items = [
   { to: "/dashboard", label: "Overview", icon: LayoutGrid, end: true, testid: "nav-overview" },
@@ -10,6 +10,7 @@ const items = [
   { to: "/dashboard/services", label: "Services", icon: Briefcase, testid: "nav-services" },
   { to: "/dashboard/availability", label: "Availability", icon: Clock, testid: "nav-availability" },
   { to: "/dashboard/policies", label: "Policies", icon: Shield, testid: "nav-policies" },
+  { to: "/dashboard/billing", label: "Billing", icon: CreditCard, testid: "nav-billing" },
   { to: "/dashboard/profile", label: "Profile", icon: UserCircle, testid: "nav-profile" },
 ];
 
